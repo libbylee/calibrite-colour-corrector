@@ -5,7 +5,7 @@ This is an automated colour corrector for computing the l*a*b* values of images.
 
 1. Crop the photo with measuring region of interest and ColorChecker to just include the Calibrite Passport ColorChecker, with colours in the same order and orientation. Make sure that the photo is zoomed in enough to the point where borders are not shown: Crop image such that order of colours and orientation are as below:
 
-![Example Image](test_photo.jpg)
+![Example Image](photos/test_photo.jpg)
 
 2. Run the colour_extractor script with the correct path file to the photo
 
