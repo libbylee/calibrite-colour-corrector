@@ -1,0 +1,294 @@
+"""
+COLOR CHECKER L*a*b* EXTRACTOR
+This script extracts L*a*b* color values from a 6x4 color checker image.
+Values are extracted from bottom-right to top-left order.
+
+NO COMPILER NEEDED - Uses only OpenCV for color conversion!
+"""
+
+import cv2  
+import numpy as np  
+import matplotlib.pyplot as plt  
+import matplotlib.patches as patches  
+
+# ColorChecker patch names in order from A1 to F4
+COLOR_NAMES = [
+    "Dark skin", "Light skin", "Blue sky", "Foliage", "Blue flower", "Bluish green",
+    "Orange", "Purplish blue", "Moderate red", "Purple", "Yellow green", "Orange yellow",
+    "Blue", "Green", "Red", "Yellow", "Magenta", "Cyan",
+    "White", "Neutral 8", "Neutral 6.5", "Neutral 5", "Neutral 3.5", "Black"
+]
+
+# Patch position labels (A1-F4)
+PATCH_LABELS = [
+    "A1", "B1", "C1", "D1", "E1", "F1",
+    "A2", "B2", "C2", "D2", "E2", "F2",
+    "A3", "B3", "C3", "D3", "E3", "F3",
+    "A4", "B4", "C4", "D4", "E4", "F4"
+]
+
+
+def extract_color_checker_lab(image_path, debug=False):
+    """
+    Extract L*a*b* values from a 6x4 color checker image.
+    
+    Args:
+        image_path: Path to the color checker image file
+        debug: If True, displays an image showing where samples were taken
+        
+    Returns:
+        List of dictionaries containing position and L*a*b* values
+    """
+    
+    # STEP 1: Load the image
+    # Images are loaded in BGR format (Blue, Green, Red) by default
+    print(f"Loading image: {image_path}")
+    img = cv2.imread(image_path)
+    
+    # Check if image loaded successfully
+    if img is None:
+        raise FileNotFoundError(f"Could not load image: {image_path}")
+    
+    print(f"Image loaded: {img.shape[1]}x{img.shape[0]} pixels")
+    
+    # Create lists to store debug info if needed
+    if debug:
+        debug_centers = []
+        debug_boxes = []
+        debug_labels = []
+    
+    # STEP 2: Calculate grid dimensions
+    # Get the total width and height of the image
+    height, width = img.shape[:2]  # shape gives (height, width, channels)
+    
+    # Define the color checker grid structure
+    cols = 6 
+    rows = 4  
+    
+    # Calculate how many pixels wide and tall each square is
+    # We divide the total image size by the number of squares
+    square_width = width // cols   # // is integer division
+    square_height = height // rows
+    
+    print(f"Grid: {cols} columns × {rows} rows")
+    print(f"Each square: {square_width}×{square_height} pixels")
+    
+    # STEP 3: Extract color from each square
+    lab_values = []  # Empty list to store our results
+    
+    # TOP-LEFT to BOTTOM-RIGHT (standard reading order)
+    # Top row = row 0, Bottom row = row 3
+    # Leftmost column = col 0, Rightmost column = col 5
+    
+    print("\nExtracting colors...")
+    
+    # Loop through rows from top (0) to bottom (3)
+    for row in range(rows):  # Goes: 0, 1, 2, 3
+        
+        # Loop through columns from left (0) to right (5)
+        for col in range(cols):  # Goes: 0, 1, 2, 3, 4, 5
+            
+            # STEP 3a: Calculate the center point of this square
+            # Multiply by square size to get pixel position, then add half
+            # a square to get to the center
+            center_x = col * square_width + square_width // 2
+            center_y = row * square_height + square_height // 2
+            
+            # STEP 3b: Get the color from the center pixel
+            # Instead of sampling a region, we'll just use the center pixel
+            center_pixel_bgr = img[center_y, center_x]
+            
+            # Create a 1x1 pixel image with this color
+            pixel = np.uint8([[center_pixel_bgr]])
+            
+            # STEP 3d: Convert BGR to L*a*b* using OpenCV
+            # L*a*b* is a perceptually uniform color space
+            # L* = Lightness (0 = black, 100 = white)
+            # a* = Green (-) to Red (+)
+            # b* = Blue (-) to Yellow (+)
+            
+            lab_pixel = cv2.cvtColor(pixel, cv2.COLOR_BGR2LAB)
+            
+            # Extract the L, a, b values
+            # OpenCV stores L*a*b* in a slightly different range than standard
+            # L: 0-255 (we need 0-100)
+            # a: 0-255 (we need -128 to +127)
+            # b: 0-255 (we need -128 to +127)
+            
+            lab_opencv = lab_pixel[0][0]
+            
+            # Convert OpenCV's L*a*b* format to standard CIE L*a*b*
+            # OpenCV stores L*a*b* as unsigned 8-bit integers (0-255)
+            # We need to convert to proper L*a*b* ranges
+            L = float(lab_opencv[0]) * (100.0 / 255.0)  # Scale 0-255 to 0-100
+            a = float(lab_opencv[1]) - 128.0  # Shift 0-255 to -128 to +127
+            b = float(lab_opencv[2]) - 128.0  # Shift 0-255 to -128 to +127
+            
+            # STEP 3e: Store the results
+            # Reading top-left to bottom-right (standard order)
+            patch_index = row * 6 + col
+            
+            lab_values.append({
+                'row': row,
+                'col': col,
+                'patch_label': PATCH_LABELS[patch_index],
+                'color_name': COLOR_NAMES[patch_index],
+                'position': f'Row {row}, Col {col}',
+                'L': float(L),  # Lightness
+                'a': float(a),  # Green-Red axis
+                'b': float(b)   # Blue-Yellow axis
+            })
+            
+            # Print progress
+            print(f"  Extracted: {PATCH_LABELS[patch_index]} ({COLOR_NAMES[patch_index]}) → "
+                  f"L*={L:.1f}, a*={a:.1f}, b*={b:.1f}")
+            
+            # DEBUG: Store sampling location info
+            if debug:
+                debug_centers.append((center_x, center_y))
+                debug_boxes.append((center_x - 2, center_y - 2, 5, 5))  # Small box around center pixel
+                debug_labels.append(PATCH_LABELS[patch_index])
+    
+    print(f"\nSuccessfully extracted {len(lab_values)} colors!")
+    
+    # Display debug visualization if requested
+    if debug:
+        # Convert BGR to RGB for matplotlib
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+        # Create figure
+        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+        ax.imshow(img_rgb)
+        
+        # Plot all centers and boxes
+        for i, (center, box, label) in enumerate(zip(debug_centers, debug_boxes, debug_labels)):
+            # Draw center point as green dot
+            ax.plot(center[0], center[1], 'go', markersize=10, markeredgecolor='white', markeredgewidth=2)
+            
+            # Draw sample region as yellow rectangle
+            rect = patches.Rectangle((box[0], box[1]), box[2], box[3], 
+                                     linewidth=2, edgecolor='yellow', facecolor='none')
+            ax.add_patch(rect)
+            
+            # Add patch label
+            ax.text(center[0], center[1] - 20, label, 
+                   color='white', fontsize=10, fontweight='bold',
+                   ha='center', va='center',
+                   bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.7))
+        
+        ax.set_title('ColorChecker Sampling Locations\nGreen dots = center pixels sampled', 
+                    fontsize=14, fontweight='bold')
+        ax.axis('off')
+        plt.tight_layout()
+        
+        # Save the figure
+        debug_filename = "debug_sampling_points.png"
+        plt.savefig(debug_filename, dpi=150, bbox_inches='tight')
+        print(f"\n✓ Debug image saved to: {debug_filename}")
+        
+        # Display the plot
+        plt.show()
+        print("  Green dots = center pixels")
+        print("  Yellow boxes = 5×5 pixel area around center (visual guide)")
+        print("  White text = patch labels")
+    
+    return lab_values
+
+
+def save_to_csv(lab_values, output_file='lab_values.csv'):
+    """
+    Save the extracted L*a*b* values to a CSV file.
+    
+    Args:
+        lab_values: List of color data dictionaries
+        output_file: Name of the output CSV file
+    """
+    import csv
+    
+    print(f"\nSaving to {output_file}...")
+    
+    # Open file for writing
+    with open(output_file, 'w', newline='') as f:
+        # Create CSV writer
+        writer = csv.writer(f)
+        
+        # Write header row
+        writer.writerow(['Patch', 'Color_Name', 'L*', 'a*', 'b*'])
+        
+        # Write each color as a row
+        for values in lab_values:
+            writer.writerow([
+                values['patch_label'],
+                values['color_name'],
+                f"{values['L']:.2f}",  # Format to 2 decimal places
+                f"{values['a']:.2f}", 
+                f"{values['b']:.2f}"
+            ])
+    
+    print(f"✓ Saved to {output_file}")
+
+
+def print_results(lab_values):
+    """
+    Print the L*a*b* values in a nice formatted table.
+    
+    Args:
+        lab_values: List of color data dictionaries
+    """
+    print("\n" + "="*80)
+    print("L*a*b* VALUES (Top-Left to Bottom-Right Order)")
+    print("="*80)
+    print(f"{'Patch':<8} {'Color Name':<18} {'L*':>8} {'a*':>8} {'b*':>8}")
+    print("-"*80)
+    
+    for values in lab_values:
+        print(f"{values['patch_label']:<8} {values['color_name']:<18} "
+              f"{values['L']:>8.2f} {values['a']:>8.2f} {values['b']:>8.2f}")
+    
+    print("="*80)
+
+
+# MAIN EXECUTION
+# ==========================================================================
+if __name__ == "__main__":
+
+    DEBUG_MODE = False
+    
+    # CONFIGURATION
+    # UPDATE THIS to match your image filename
+    image_path = "photos/test_photo.jpg"
+    
+    # Name for the output CSV file
+    output_csv = "measured_colorchecker.csv"
+    
+    print("="*70)
+    print("COLOR CHECKER L*a*b* EXTRACTOR")
+    print("="*70)
+    print()
+    
+    try:
+        # Extract the colors from the image
+        lab_values = extract_color_checker_lab(image_path, debug=DEBUG_MODE)
+        
+        # Display results in the terminal
+        print_results(lab_values)
+        
+        # Save results to CSV file
+        save_to_csv(lab_values, output_csv)
+        
+        print("\n✓ Extraction complete!")
+        print(f"\nYou can now use '{output_csv}' with your Colourcorrector script.")
+        
+    except FileNotFoundError as e:
+        print(f"\n✗ ERROR: {e}")
+        print("\nMake sure:")
+        print(f"  1. Your image file exists")
+        print(f"  2. The filename matches: '{image_path}'")
+        print(f"  3. The image is in the same folder as this script")
+        
+    except Exception as e:
+        print(f"\n✗ ERROR: {e}")
+        print("\nSomething went wrong. Check:")
+        print("  1. Image file is a valid format (JPG, PNG, etc.)")
+        print("  2. All required libraries are installed")
+        print("  3. The image shows a clear 6×4 color checker grid")
