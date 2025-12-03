@@ -4,7 +4,165 @@ from colormath.color_objects import LabColor, sRGBColor
 from colormath.color_conversions import convert_color
 import os
 import sys
+import numpy as np
+import pandas as pd
+import os
+import sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'references'))
-from reference_values import COLORCHECKER_LAB_REFERENCES
+from reference_values import colour_checker_lab_reference
+
+def load_measured_colorchecker(csv_path):
+    """ Loads measured ColourChecker L*a*b values from a CSV file:
+    
+    Expected CSV format:
+    Path, l*a*b*
+    A1, 67.67,67,69
+    B1  69,67,67
+    ....
+
+    orr without patch names:
+    L,a,b
+    67.67,67,69
+    69,67,67
+
+    Values should be in the same order as reference values (A1-F4).
+    """
+
+    print(f"Loading measured ColourChecker values from: {csv_path}")
+
+    df = pd.read_csv(csv_path)
+
+    # Extract L, a, b columns (handle different possible column names)
+    l_col = [col for col in df.columns if 'l' in col.lower()][0]
+    a_col = [col for col in df.columns if 'a' in col.lower()][0]
+    b_col = [col for col in df.columns if 'b' in col.lower()][0]
+
+    measured_lab = df[[l_col, a_col, b_col]].values
+
+    print(f"Loaded {len(measured_lab)} measurements")
+
+    if len(measured_lab) != 24:
+        print(f"Expected 24 pathces but got len{measured_lab}")
+        print("Make sure measurements are in correct order as well from A1-F4)")
+
+    return measured_lab
+
+def calculate_correction(measured_lab, reference_lab)
+    """
+    Calculates the colour correctoni from measured and reference l*a*b* values
+    Then returns the correction matrix """
+
+    print("\n Calculating correction!")
+
+    reference_lab = np.array(reference_lab)
+    measured_lab = np.array(measured_lab)
+
+    correction = reference_lab - measured_lab
+
+    avg_correction = np.mean(correction, axis = 0)
+
+    #Print results
+    print("\n" + "="*60)
+    print("Calibration Results")
+    print("="*60)
+    print(f"\nAverage Correction to Apply:")
+    print(f"  ΔL*: {avg_correction[0]:+.2f}")
+    print(f"  Δa*: {avg_correction[1]:+.2f}")
+    print(f"  Δb*: {avg_correction[2]:+.2f}")
+    print("="*60)
+
+    return avg_correction
+
+def apply_correction_to_data(data_csv, correctoin, output_csv):
+    """
+    Apply correction to mussel L*a*b* measurements
+    
+    Input CSV should have L, a, b columns (and any other columns you want to keep)
+    """
+    print(f"\nLoading mussel data from: {data_csv}")
+    df = pd.read_csv(data_csv)
+
+    # Find L, a, b columns
+    l_col = [col for col in df.columns if 'l' in col.lower()][0]
+    a_col = [col for col in df.columns if 'a' in col.lower()][0]
+    b_col = [col for col in df.columns if 'b' in col.lower()][0]
+
+    print(f"Found columns: {l_col}, {a_col}, {b_col}")
+
+    # Apply correction
+
+    df['L_corrected'] = df[l_col] + correction[0]
+    df['a_corrected'] = df[a_col] + correction[1]
+    df['b_corrected'] = df[b_col] + correction[2]
+
+    # Save data
+    df.to_csv(output_csv, index = False)
+    print(f"Corrected data saved to: {output_csv}")
+    print(f"Processed {len(df)} measurements")
+    
+    return df
+
+def save_correction(correction, filename = "correction_values.csv"):
+    """Save correction values for future use"""
+    corr_df = pd.DataFrame({
+        'Parameter': ['L*', 'a*', 'b*'],
+        'Correction': correction
+    })
+    corr_df.to_csv(filename, index=False)
+    print(f"\nCorrection values saved to: {filename}")
+
+
+def load_correction(filename="correction_values.csv"):
+    """Load previously saved correction"""
+    df = pd.read_csv(filename)
+    correction = df['Correction'].values
+    print(f"Loaded correction from: {filename}")
+    print(f"  ΔL*: {correction[0]:+.2f}, Δa*: {correction[1]:+.2f}, Δb*: {correction[2]:+.2f}")
+    return correction
+
+def create_example_csvs():
+    """Create example CSV files to show expected format"""
+    
+    # Example measured ColorChecker CSV
+    measured_example = pd.DataFrame({
+        'Patch': ['A1', 'B1', 'C1', 'D1', 'E1', 'F1',
+                  'A2', 'B2', 'C2', 'D2', 'E2', 'F2',
+                  'A3', 'B3', 'C3', 'D3', 'E3', 'F3',
+                  'A4', 'B4', 'C4', 'D4', 'E4', 'F4'],
+        'L': [37.2, 64.5, 49.0, 43.2, 54.8, 70.2,
+              62.5, 39.2, 50.3, 29.9, 71.5, 71.3,
+              28.1, 54.2, 42.2, 81.5, 50.4, 49.3,
+              94.9, 81.0, 66.7, 50.5, 35.4, 20.5],
+        'a': [14.5, 19.5, -3.9, -12.9, 9.8, -32.5,
+              36.0, 10.9, 48.8, 22.7, -24.3, 18.4,
+              15.6, -39.9, 51.2, 2.8, 51.5, -29.9,
+              -1.1, -0.6, -0.8, -0.2, -0.5, 0.1],
+        'b': [15.1, 17.7, -22.7, 22.9, -24.9, -0.5,
+              56.7, -45.3, 16.8, -20.9, 58.4, 67.5,
+              -50.0, 32.5, 28.8, 80.6, -14.3, -28.5,
+              2.9, 0.5, -0.1, 0.2, -0.5, -0.5]
+    })
+    measured_example.to_csv('example_measured_colorchecker.csv', index=False)
+    
+    # Example mussel data CSV
+    mussel_example = pd.DataFrame({
+        'Sample': ['Mussel_1_infested', 'Mussel_1_clean', 'Mussel_2_infested', 'Mussel_2_clean'],
+        'Region': ['ROI1', 'ROI2', 'ROI1', 'ROI2'],
+        'L': [45.3, 52.1, 43.8, 51.5],
+        'a': [2.5, -1.2, 3.1, -0.8],
+        'b': [8.3, 5.2, 9.1, 5.8]
+    })
+    mussel_example.to_csv('example_mussel_data.csv', index=False)
+    
+    print("Created example CSV files:")
+    print("  - example_measured_colorchecker.csv")
+    print("  - example_mussel_data.csv")
+
+
+
+
+
+
+
 
