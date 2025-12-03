@@ -4,7 +4,7 @@
 # Order: A1, B1, C1, D1, E1, F1, A2, B2, C2, D2, E2, F2, A3, B3, C3, D3, E3, F3, A4, B4, C4, D4, E4, F4
 
 
-COLORCHECKER_LAB_REFERENCES = [
+colour_checker_lab_reference = [
     (37.54, 14.37, 14.92),    # A1 - Dark skin
     (64.66, 19.27, 17.50),    # B1 - Light skin
     (49.32, -3.82, -22.54),   # C1 - Blue sky
