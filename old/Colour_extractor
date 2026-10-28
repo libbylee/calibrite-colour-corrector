@@ -28,7 +28,7 @@ PATCH_LABELS = [
 ]
 
 
-def extract_color_checker_lab(image_path, debug=False):
+def extract_color_checker_lab(image_path, debug=True):
     """
     Extract L*a*b* values from a 6x4 color checker image.
     
@@ -252,7 +252,7 @@ def print_results(lab_values):
 # ==========================================================================
 if __name__ == "__main__":
 
-    DEBUG_MODE = False
+    DEBUG_MODE = True
     
     # CONFIGURATION
     # UPDATE THIS to match your image filename
