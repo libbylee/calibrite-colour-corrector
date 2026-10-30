@@ -4,10 +4,12 @@ Shared helpers for the ColorChecker correction workflow.
 Everything (checker patches AND shell regions) goes through bgr_to_lab(),
 so the two can never use different colour conversions.
 """
+from pathlib import Path
 
 import cv2
 import numpy as np
 import pandas as pd
+
 
 COLOR_NAMES = [
     "Dark skin", "Light skin", "Blue sky", "Foliage", "Blue flower", "Bluish green",
@@ -23,6 +25,55 @@ COLS, ROWS = 6, 4
 # stays well inside the patch (0.25 -> the middle 50% of each side is used).
 PATCH_MARGIN = 0.25
 
+RAW_EXTENSIONS = {".cr2", ".cr3", ".nef", ".arw", ".dng", ".orf", ".rw2", ".raf", ".pef"}
+
+
+def is_raw_file(path):
+    return Path(path).suffix.lower() in RAW_EXTENSIONS
+
+
+def load_image(path, wb="daylight"):
+    """Load a photo as an 8-bit BGR image. Raw files (.CR2 etc.) are developed
+    with fixed settings: no auto-brightness, sRGB, 8-bit. wb is 'daylight'
+    (same fixed white balance for every photo) or 'camera' (as shot)."""
+    path = str(path)
+    if not is_raw_file(path):
+        img = cv2.imread(path)
+        if img is None:
+            raise FileNotFoundError(f"Could not load image: {path}")
+        return img, {"source": "image file (read as-is)"}
+
+    if not Path(path).exists():
+        raise FileNotFoundError(f"File not found: {path}")
+    if wb not in ("daylight", "camera"):
+        raise ValueError("wb must be 'daylight' or 'camera'")
+    try:
+        import rawpy
+    except ImportError as e:
+        raise ImportError(
+            "Reading raw files needs the rawpy library:  python3 -m pip install rawpy"
+        ) from e
+
+    with rawpy.imread(path) as raw:
+        rgb = raw.postprocess(
+            use_camera_wb=(wb == "camera"),
+            use_auto_wb=False,
+            no_auto_bright=True,
+            bright=1.0,
+            output_color=rawpy.ColorSpace.sRGB,
+            gamma=(2.222, 4.5),          # standard sRGB curve
+            output_bps=8,
+        )
+        # Copy into our own memory while the raw file is still open.
+        bgr = cv2.cvtColor(np.array(rgb, copy=True), cv2.COLOR_RGB2BGR)
+    info = {
+        "source": "raw (developed with rawpy)",
+        "white_balance": wb,
+        "auto_brightness": False,
+        "output": "sRGB, standard sRGB gamma, 8-bit",
+        "rawpy_version": rawpy.__version__,
+    }
+    return bgr, info
 
 def bgr_to_lab(bgr_pixels):
     """N x 3 (or single) BGR 0-255 pixels -> N x 3 standard CIE L*a*b*.

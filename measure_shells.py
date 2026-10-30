@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 
 from colour_utils import (
-    PATCH_MARGIN, calculate_correction, draw_checker_debug, orient_checker,
+    PATCH_MARGIN, calculate_correction, draw_checker_debug, is_raw_file, load_image, orient_checker,
     region_lab, save_correction,
 )
 from references.reference_values import colour_checker_lab_reference
@@ -130,18 +130,32 @@ def main():
                     help="fixed N x N pixel square for shell regions; click to place")
     ap.add_argument("--regions",
                     help="re-use boxes saved by an earlier run (a *_regions.json file)")
+    ap.add_argument("--wb", choices=["daylight", "camera"], default="daylight",
+                    help="raw files only: fixed daylight white balance (default) "
+                         "or the as-shot camera white balance")
     args = ap.parse_args()
 
-    img = cv2.imread(args.photo)
-    if img is None:
-        sys.exit(f"Could not load image: {args.photo}")
+    try:
+        img, load_info = load_image(args.photo, wb=args.wb)
+    except Exception as e:
+        sys.exit(f"Could not load {args.photo}: {e}")
     photo_hash = file_sha256(args.photo)
+
+
     ih, iw = img.shape[:2]
 
     stem = Path(args.photo).stem
     sample = args.sample or stem
     out = Path(args.out)
     out.mkdir(exist_ok=True)
+
+
+    if is_raw_file(args.photo):
+        print(f"Raw file developed with fixed settings: white balance = {args.wb}, "
+              f"no auto-brightness, sRGB, 8-bit.")
+        converted = out / f"{stem}_converted.png"
+        cv2.imwrite(str(converted), img)
+        print(f"Developed image saved to {converted}")
 
     # --- 1. checker box ---------------------------------------------------
     saved_regions = None
@@ -152,6 +166,12 @@ def main():
                   "regions were made on. The boxes may not land on the same things.")
         if saved.get("patch_margin", PATCH_MARGIN) != PATCH_MARGIN:
             print("WARNING: the saved regions used a different patch margin.")
+
+        old_load = saved.get("image_loading")
+        if old_load is not None and old_load != load_info:
+            print("WARNING: the photo was loaded/developed differently from when the "
+                  f"regions were saved.\n  then: {old_load}\n  now:  {load_info}")
+            
         checker_box = tuple(saved["checker_box"])
         saved_regions = [(r["label"], tuple(r["box"])) for r in saved["regions"]]
         print(f"Using the saved boxes from {args.regions} (no drawing needed).")
@@ -253,6 +273,7 @@ def main():
             "photo": Path(args.photo).name,
             "image_sha256": photo_hash,
             "patch_margin": PATCH_MARGIN,
+            "image_loading": load_info,
             "checker_box": [int(v) for v in checker_box],
             "regions": [{"label": lbl, "box": [int(v) for v in b]} for lbl, b in regions],
         }, indent=2))
