@@ -85,3 +85,112 @@ To go through a whole folder of photos in one go (you still draw the boxes on ea
 for f in photos/*.jpg; do python3 measure_shells.py "$f" --sample "$(basename "$f" .jpg)" --size 150; done
 ```
 
+Two things to watch:
+- `all_results.csv` only ever **adds** rows. If you re-run the same photo you get duplicate rows, so delete the bad ones. To start a new project, move or rename `all_results.csv` first.
+- Each photo's own `<photo>_results.csv` is overwritten if you re-run that photo.
+
+---
+
+## What gets saved
+
+Everything goes into `outputs/`. For a photo called `IMG_9563.jpg`:
+
+| File | What it is |
+|---|---|
+| `all_results.csv` | **The main results.** One row per shell region, across all photos. |
+| `IMG_9563_results.csv` | Rows for this photo only. |
+| `IMG_9563_selection.png` | Your photo with the boxes drawn on it. Open this to check you selected the right places. |
+| `IMG_9563_checker_debug.png` | Only with `--debug`. Which part of each checker patch was sampled, and measured vs reference colours. |
+| `IMG_9563_<label>_crop.png` | The exact pixels measured for each shell region (lossless). |
+| `IMG_9563_checker_crop.png` | The exact checker crop used. |
+| `IMG_9563_correction.csv` | The correction that was applied. |
+| `IMG_9563_regions.json` | The saved boxes, for re-measuring the same pixels with `--regions`. |
+
+To open the folder in Finder: `open outputs`. To print the results in the terminal: `cat outputs/all_results.csv`.
+
+---
+
+## Reading the results
+
+Each row of `all_results.csv` is one shell region.
+
+| Column | Meaning |
+|---|---|
+| `Photo`, `Sample`, `Region` | Which photo, which shell, which spot. |
+| `L*`, `a*`, `b*` | Colour measured from the photo, **before** correction. |
+| `L_corrected`, `a_corrected`, `b_corrected` | Colour **after** correction using the checker. **Use these for analysis.** |
+| `Pixels`, `Box_x`, `Box_y`, `Box_w`, `Box_h` | Size and position of the measured box. |
+| `Boxes` | `drawn` (selected by hand) or `saved` (re-used from a regions file). |
+
+CIE L\*a\*b\*:
+- **L\*** is lightness: 0 is black, 100 is white.
+- **a\*** runs from green (negative) to red (positive).
+- **b\*** runs from blue (negative) to yellow (positive).
+
+The value for each region is the **median** of every pixel in the box.
+
+To compare two measurements, use the colour difference
+ΔE = √(ΔL\*² + Δa\*² + Δb\*²). Roughly, a ΔE of 2 to 3 is the smallest difference a
+person can notice; larger values are clearly different. A single measurement doesn't
+mean much by itself. Compare several regions per shell and several shells per group.
+
+### Exporting for analysis
+
+`outputs/all_results.csv` is a normal CSV file. Open it in Excel or Numbers, or import
+it into JMP, R or Python. The columns to analyze are `Sample`, `Region`,
+`L_corrected`, `a_corrected` and `b_corrected`. Keep the whole `outputs/` folder as the
+record of what was measured.
+
+---
+
+## Checking the colour correction
+
+When you run the script it prints something like:
+
+```
+Mean patch error vs reference (before correction): 18.8
+Correction to add:  dL*=-12.66  da*=-4.11  db*=-7.60
+Per-patch error (delta E76): mean 18.8 -> 10.6 after correction, worst patch 25.0
+```
+
+- The **mean error before correction** tells you how far the photo's colours are from the true checker colours. Over about 20 triggers a warning: check the crop, the lighting, and the reference values.
+- The **mean error after correction** tells you how well a single correction fits. Below about 3 is good. Higher means the corrected values are approximate.
+- Run with `--debug` and open `*_checker_debug.png`. The green boxes should sit inside each colour square, with A1 (dark brown) at the top left of the left-hand picture, and the top and bottom halves of each patch on the right should be fairly close.
+
+### Reproducibility
+
+- `*_regions.json` saves the exact boxes and a fingerprint of the photo. Re-running with
+  `--regions outputs/IMG_9563_regions.json` measures the identical pixels and gives identical numbers.
+- Saved boxes only match the **same photo file**. For a different photo you draw new
+  boxes. Use `--size` so every region is the same size.
+- If the camera is fixed and nothing moves between photos, you can try another
+  photo's regions file. The script warns that the photo is different, so check the
+  `_selection.png` to confirm the boxes landed in the right places.
+
+---
+
+## Changing the sampling area on the checker
+
+Each checker patch is sampled over the middle of the square. This is set in `colour_utils.py`:
+
+```
+PATCH_MARGIN = 0.25
+```
+
+| `PATCH_MARGIN` | Area sampled in each patch |
+|---|---|
+| 0.25 | middle 50% of each side (default) |
+| 0.40 | middle 20% of each side |
+| 0.45 | middle 10% of each side |
+
+Don't use 0.5 or higher (the area would be empty). A single pixel is not recommended
+because it picks up camera noise.
+
+---
+
+## Known limitations
+
+- **One constant correction.** The script adds one average offset to L\*, a\* and b\*. This is a simple correction. If the mean error after correction is high, treat the corrected values as approximate. A per-channel or matrix fit would do better.
+- **Illuminant.** The colour conversion uses OpenCV, which assumes a D65 white point. Calibrite's published reference values are usually D50. Check which one `references/reference_values.py` contains. A mismatch adds an error that the correction can't fully remove.
+- **Conditions must match.** A correction only applies to the photo it came from, so every photo needs its own checker in frame under the same lighting as the shell.
+- **Rectangular regions only.** Regions are rectangles (or squares with `--size`), so choose flat, glare-free spots on the shell.

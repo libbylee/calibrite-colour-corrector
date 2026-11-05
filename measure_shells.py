@@ -58,19 +58,24 @@ def safe_name(label):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", label).strip("_") or "region"
 
 
-def make_view(img, max_dim):
-    """Shrunken copy for big photos (so the window fits the screen) + scale."""
+def make_view(img, max_dim, allow_upscale=False, max_zoom=8.0):
+    """Copy of the photo sized to fit the window + the scale used.
+    Big photos are shrunk. With allow_upscale (used by --zoom) small crops are
+    enlarged (up to max_zoom times, nearest-neighbour so you see real pixels)."""
     h, w = img.shape[:2]
-    scale = min(1.0, max_dim / max(h, w))
+    scale = max_dim / max(h, w)
+    scale = min(scale, max_zoom) if allow_upscale else min(1.0, scale)
     if scale < 1:
         return cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA), scale
+    if scale > 1:
+        return cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST), scale
     return img, 1.0
 
 
-def select_box(title, img, max_dim=1400):
+def select_box(title, img, max_dim=1400, allow_upscale=False):
     """Drag a rectangle. Returns (x, y, w, h) in ORIGINAL pixel coordinates,
     or None if cancelled."""
-    view, scale = make_view(img, max_dim)
+    view, scale = make_view(img, max_dim, allow_upscale)
     x, y, bw, bh = cv2.selectROI(title, view, showCrosshair=False)
     cv2.destroyWindow(title)
     cv2.waitKey(1)
@@ -78,14 +83,13 @@ def select_box(title, img, max_dim=1400):
         return None
     return tuple(int(round(v / scale)) for v in (x, y, bw, bh))
 
-
-def select_square(title, img, size, max_dim=1400):
+def select_square(title, img, size, max_dim=1400, allow_upscale=False):
     """Click to place a fixed size x size square (centred on the click).
     Click again to move it, Enter/Space to accept, Esc to cancel.
     Returns (x, y, size, size) in ORIGINAL pixel coordinates, or None."""
     h, w = img.shape[:2]
     size = int(min(size, h, w))
-    view, scale = make_view(img, max_dim)
+    view, scale = make_view(img, max_dim, allow_upscale)
     click = {}
 
     def on_mouse(event, x, y, flags, param):
@@ -118,6 +122,43 @@ def select_square(title, img, size, max_dim=1400):
     cv2.waitKey(1)
     return result
 
+def pick_region(kind, title, img, zoom, size=None):
+    """Select an area. kind='box' -> drag a rectangle; kind='square' -> click a
+    fixed size x size square. Returns (x, y, w, h) in ORIGINAL photo pixels, or
+    None if cancelled.
+
+    With zoom=True it is a two-step pick: (1) drag a rough box around the area on
+    the whole photo, (2) pick precisely on an enlarged view of just that area.
+    The result is converted back to full-resolution photo coordinates, so the
+    measured pixels (and the fixed square size) are exactly as without --zoom."""
+    def select(t, im, up=False):
+        if kind == "square":
+            return select_square(t, im, size, allow_upscale=up)
+        return select_box(t, im, allow_upscale=up)
+
+    if not zoom:
+        return select(title, img)
+
+    rough = select_box("ZOOM STEP 1 of 2: drag a rough box around the area, Enter "
+                       "to continue (c = cancel)", img)
+    if rough is None:
+        return None
+    rx, ry, rw, rh = rough
+    ih, iw = img.shape[:2]
+    w, h = rw, rh
+    if kind == "square":     # the crop must hold the whole square with room to move it
+        need = int(size * 1.5)
+        w, h = max(w, need), max(h, need)
+    w, h = min(w, iw), min(h, ih)
+    x0 = max(0, min(int(round(rx + rw / 2.0 - w / 2.0)), iw - w))
+    y0 = max(0, min(int(round(ry + rh / 2.0 - h / 2.0)), ih - h))
+    sub = img[y0:y0 + h, x0:x0 + w]
+
+    fine = select("ZOOM STEP 2 of 2: " + title, sub, up=True)
+    if fine is None:
+        return None
+    fx, fy, fw, fh = fine
+    return (fx + x0, fy + y0, fw, fh)
 
 def main():
     ap = argparse.ArgumentParser()
@@ -130,6 +171,9 @@ def main():
                     help="fixed N x N pixel square for shell regions; click to place")
     ap.add_argument("--regions",
                     help="re-use boxes saved by an earlier run (a *_regions.json file)")
+    ap.add_argument("--zoom", action="store_true",
+                    help="two-step selection: rough box first, then pick precisely "
+                         "on an enlarged view of that area")
     ap.add_argument("--wb", choices=["daylight", "camera"], default="daylight",
                     help="raw files only: fixed daylight white balance (default) "
                          "or the as-shot camera white balance")
@@ -176,7 +220,9 @@ def main():
         saved_regions = [(r["label"], tuple(r["box"])) for r in saved["regions"]]
         print(f"Using the saved boxes from {args.regions} (no drawing needed).")
     else:
-        checker_box = select_box("1) Select the checker (24 patches only) - Enter to confirm", img)
+        checker_box = pick_region(
+        "box", "1) Select the checker (24 patches only) - Enter to confirm",
+            img, args.zoom)
         if checker_box is None:
             sys.exit("No checker selected.")
     cx, cy, cw, ch = checker_box
@@ -220,11 +266,14 @@ def main():
         n = 0
         while True:
             if args.size:
-                box = select_square(
+                box = pick_region(
+                    "square",
                     f"2) Click to place a {args.size}px square - Enter to accept, Esc to finish",
-                    img, args.size)
+                    img, args.zoom, size=args.size)
             else:
-                box = select_box("2) Select a shell region - Enter to confirm, c to cancel", img)
+                box = pick_region(
+                    "box", "2) Select a shell region - Enter to confirm, c to cancel",
+                    img, args.zoom)
             if box is None:
                 if not regions:
                     print("No shell region selected.")
