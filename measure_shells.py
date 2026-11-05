@@ -122,6 +122,55 @@ def select_square(title, img, size, max_dim=1400, allow_upscale=False):
     cv2.waitKey(1)
     return result
 
+def draw_label(img, text, box, placed, scale, obstacles=()):
+    """Write text next to a box on the overlay picture: white text with a dark
+    outline, put in the first spot (above, below, inside) that does not overlap a
+    label already drawn or any OTHER box. `placed` is the list of label rectangles
+    drawn so far; `obstacles` is a list of (x0, y0, x1, y1) of the other boxes."""
+    x, y, w, h = box
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    th = max(1, int(round(scale * 2)))
+    (tw, tht), base = cv2.getTextSize(text, font, scale, th)
+    pad = max(2, int(scale * 4))
+    ih, iw = img.shape[:2]
+
+    def rect(p):
+        px, py = p
+        return (px - pad, py - tht - pad, px + tw + pad, py + base + pad)
+
+    def overlaps(a, b):
+        return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
+
+    def fits(r):
+        return r[0] >= 0 and r[1] >= 0 and r[2] <= iw and r[3] <= ih
+
+    step = tht + 2 * pad
+    candidates = [
+        (x, y - pad),                        # above, left-aligned
+        (x, y + h + tht + pad),              # below, left-aligned
+        (x + w - tw, y - pad),               # above, right-aligned
+        (x + w - tw, y + h + tht + pad),     # below, right-aligned
+        (x + pad, y + tht + pad),            # inside, top-left
+        (x + pad, y + h - pad),              # inside, bottom-left
+    ]
+    # fall back to stacking further above / below the box
+    candidates += [(x, y - pad - k * step) for k in range(1, 15)]
+    candidates += [(x, y + h + tht + pad + k * step) for k in range(1, 15)]
+
+    chosen = None
+    for p in candidates:
+        r = rect(p)
+        if fits(r) and not any(overlaps(r, q) for q in placed) \
+                and not any(overlaps(r, o) for o in obstacles):
+            chosen = p
+            break
+    if chosen is None:                       # nowhere free: put it inside its own box
+        chosen = (x + pad, y + tht + pad)
+    px = int(min(max(chosen[0], pad), max(pad, iw - tw - pad)))
+    py = int(min(max(chosen[1], tht + pad), max(tht + pad, ih - base - pad)))
+    placed.append(rect((px, py)))
+    cv2.putText(img, text, (px, py), font, scale, (0, 0, 0), th + 2, cv2.LINE_AA)
+    cv2.putText(img, text, (px, py), font, scale, (255, 255, 255), th, cv2.LINE_AA)
 def pick_region(kind, title, img, zoom, size=None):
     """Select an area. kind='box' -> drag a rectangle; kind='square' -> click a
     fixed size x size square. Returns (x, y, w, h) in ORIGINAL photo pixels, or
@@ -174,6 +223,9 @@ def main():
     ap.add_argument("--zoom", action="store_true",
                     help="two-step selection: rough box first, then pick precisely "
                          "on an enlarged view of that area")
+    ap.add_argument("--label-scale", type=float, default=1.0,
+                    help="size of the labels on the selection picture "
+                         "(1 = default, 0.5 = half size)")
     ap.add_argument("--wb", choices=["daylight", "camera"], default="daylight",
                     help="raw files only: fixed daylight white balance (default) "
                          "or the as-shot camera white balance")
@@ -286,10 +338,13 @@ def main():
 
     # --- 4. measure --------------------------------------------------------
     overlay = img.copy()
-    t = max(2, int(max(ih, iw) / 400))
+    t = max(2, int(max(ih, iw) / 700))                            # box line thickness
+    label_scale = args.label_scale * max(0.5, max(ih, iw) / 5000.0)
+    placed_labels = []
     cv2.rectangle(overlay, (cx, cy), (cx + cw, cy + ch), (0, 255, 0), t)
 
     rows = []
+
     for label, (x, y, w, h) in regions:
         if x < 0 or y < 0 or x + w > iw or y + h > ih:
             print(f"  Skipping {label}: its box is outside this photo.")
@@ -310,8 +365,9 @@ def main():
               f"corrected L*={corr[0]:.1f} a*={corr[1]:.1f} b*={corr[2]:.1f}")
 
         cv2.rectangle(overlay, (x, y), (x + w, y + h), (0, 0, 255), t)
-        cv2.putText(overlay, label, (x, max(y - 8, 20)), cv2.FONT_HERSHEY_SIMPLEX,
-                    t / 2, (0, 0, 255), t)
+        others = [(bx, by, bx + bw, by + bh) for _, (bx, by, bw, bh) in regions
+                  if (bx, by, bw, bh) != (x, y, w, h)]
+        draw_label(overlay, label, (x, y, w, h), placed_labels, label_scale, others)
 
     # --- 5. save ----------------------------------------------------------
     cv2.imwrite(str(out / f"{stem}_selection.png"), overlay)
