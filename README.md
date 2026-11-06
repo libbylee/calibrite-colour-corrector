@@ -58,16 +58,17 @@ The results file is only written after the last question, so wait for the line t
 
 ### Options
 
-`--sample NAME` - Shell ID written to the results. 
-`--size N`  Shell regions are a fixed **N x N pixel square** (for example `--size 150`). You **click** to place the square instead of dragging a box, so every region is exactly the same size. 
-`--debug` - Saves and shows a picture of exactly which part of each checker patch was sampled, with measured vs reference colours. Press any key to close it. 
-`--regions FILE`  - Re-use the boxes saved by an earlier run, with no drawing. Measures the exact same pixels again.
-`--out FOLDER` - Saves results somewhere other than `outputs/`. 
-`--zoom`  Two-step selection. First drag a rough box around the area on the whole photo, then pick the precise box (or click the square) on an **enlarged view** of just that area. Works for the checker and for shell regions, with or without `--size`. The result is converted back to full-resolution pixels. 
-`--regions FILE` Re-use the boxes saved by an earlier run (`outputs/<photo>_regions.json`), with no drawing. Measures the exact same pixels again.
-`--wb daylight` or `--wb camera`  **Raw files only.** `daylight` (default) uses the same fixed white balance for every photo. `camera` uses the white balance the camera recorded for each shot, which usually fixes a yellow or blue tint. Use **one** setting for every photo you compare. 
-`--label-scale X` The size of the labels on the `_selection.png` picture. `1` is the default, `0.5` is half size, `1.5` is larger. Use a smaller number if your regions are close together.
-`--help` or `-h` Prints the list of options in the terminal. 
+ Option | Description |
+ | --- | --- |
+ | `--sample NAME` | Shell ID written to the results. |
+ | `--size N` | Shell regions are a fixed **N x N pixel square** (for example `--size 150`). You **click** to place the square instead of dragging a box, so every region is exactly the same size. |
+ | `--debug` | Saves and shows a picture of exactly which part of each checker patch was sampled, with measured vs reference colours. Press any key to close it. |
+ | `--regions FILE` | Re-use the boxes saved by an earlier run (`outputs/<photo>_regions.json`), with no drawing. Measures the exact same pixels again. |
+ | `--out FOLDER` | Saves results somewhere other than `outputs/`. |
+ | `--zoom` | Two-step selection. First drag a rough box around the area on the whole photo, then pick the precise box (or click the square) on an **enlarged view** of just that area. Works for the checker and for shell regions, with or without `--size`. The result is converted back to full-resolution pixels. |
+ | `--wb daylight` / `--wb camera` | **Raw files only.** `daylight` (default) uses the same fixed white balance for every photo. `camera` uses the white balance the camera recorded for each shot, which usually fixes a yellow or blue tint. Use **one** setting for every photo you compare. |
+ | `--label-scale X` | The size of the labels on the `_selection.png` picture. `1` is the default, `0.5` is half size, `1.5` is larger. Use a smaller number if your regions are close together. |
+ | `--help` / `-h` | Prints the list of options in the terminal. |
 
 For example (using different options):
 
